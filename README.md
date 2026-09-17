@@ -64,7 +64,6 @@ The [application guide](docs/APPLICATION.md) is the entry point for running the 
 |   |-- src/ids_ml/                # Model-development package
 |   |-- reports/published/         # Versioned final diagnostic evidence
 |   |-- models/                    # Frozen model plus ignored local artifacts
-|   `-- archive/                   # Historical notebooks and legacy experiments
 |-- backend/                       # FastAPI, model inference, and SQLite runtime
 |   `-- src/ids_backend/
 |-- tools/                         # Synthetic completed-flow replay utility
