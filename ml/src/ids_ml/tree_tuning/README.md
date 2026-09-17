@@ -194,7 +194,7 @@ ids-tune-trees compare-original-xgboost
     -> aggregate and seed-paired CSV reports are saved locally
 ```
 
-Use `ids-tune-trees compare-original-xgboost --rerun` only when all three original fits should be intentionally repeated. This diagnostic does not affect final selection, and the protected test set remains untouched.
+The `--rerun` option for `ids-tune-trees compare-original-xgboost` is reserved for intentionally repeating all three original fits. This diagnostic does not affect final selection, and the protected test set remains untouched.
 
 ### Automatic freeze and final evaluation
 

@@ -1,6 +1,6 @@
 # Raw dataset location
 
-Place the original merged CIC-IDS-2017 CSV here as:
+The original merged CIC-IDS-2017 CSV is expected here as:
 
 ```text
 cicids2017_merged.csv

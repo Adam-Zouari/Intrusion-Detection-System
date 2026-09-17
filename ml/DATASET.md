@@ -6,7 +6,7 @@ This document is the authoritative reference for dataset provenance, flow termin
 
 The project uses the [official CIC-IDS-2017 dataset](https://www.unb.ca/cic/datasets/ids-2017.html) produced by the Canadian Institute for Cybersecurity at the University of New Brunswick. The dataset is not distributed by this repository and is not covered by this project's Apache 2.0 license.
 
-Use the citation requested by the dataset publisher:
+The dataset publisher requests the following citation:
 
 > Iman Sharafaldin, Arash Habibi Lashkari, and Ali A. Ghorbani. "Toward Generating a New Intrusion Detection Dataset and Intrusion Traffic Characterization." *Proceedings of the 4th International Conference on Information Systems Security and Privacy (ICISSP)*, 2018.
 

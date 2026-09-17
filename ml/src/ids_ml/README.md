@@ -69,6 +69,6 @@ The tuning entry point exposes the following subcommands:
 | `ids-tune-trees evaluate-final` | Refit the frozen recipe on the complete 80% development partition and perform the guarded one-time protected-test evaluation. |
 | `ids-tune-trees final-report` | Display the frozen recipe and completed final-test result without fitting or predicting. |
 
-Use `ids-tune-trees <subcommand> --help` to inspect the options for an individual operation.
+Options for an individual operation are available through `ids-tune-trees <subcommand> --help`.
 
 The chronological user guide is [ml/README.md](../../README.md). Metric contracts are defined in [ml/METRICS.md](../../METRICS.md).

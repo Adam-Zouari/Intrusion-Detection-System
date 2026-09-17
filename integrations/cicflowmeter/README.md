@@ -33,7 +33,7 @@ The fork retains CICFlowMeter's MIT license, included as `CICFlowMeter-LICENSE.t
 
 This release is tested and supported on Windows only.
 
-## Run live capture
+## Live-capture startup
 
 From the IDS repository root, start the backend in one PowerShell terminal:
 
@@ -43,7 +43,7 @@ $env:IDS_SOURCE_NAME = "Live CICFlowMeter"
 ids-serve
 ```
 
-Start the dashboard in another terminal:
+The dashboard starts in another terminal with:
 
 ```powershell
 cd frontend
@@ -65,7 +65,7 @@ The launcher:
 3. sets `IDS_FLOW_ENDPOINT`; and
 4. starts CICFlowMeter.
 
-Use a different local backend endpoint with:
+A different local backend endpoint can be supplied with:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -73,7 +73,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
     -Endpoint http://127.0.0.1:9000/api/flows
 ```
 
-Use `-Refresh` to replace the extracted runtime copy with the committed distribution.
+The `-Refresh` option replaces the extracted runtime copy with the committed distribution.
 
 After CICFlowMeter opens, select the active network interface and start capture. Each eligible completed flow is validated, classified, persisted, and inserted into the dashboard through Server-Sent Events without refreshing the page.
 

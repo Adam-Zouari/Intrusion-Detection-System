@@ -18,7 +18,7 @@ The backend tests under `tests/backend/` are data-free and use a fake predictor:
 
 `tests/test_cicflowmeter_bundle.py` verifies that the committed Windows archive is the exact tested build, contains its launcher, native libraries, license and updated logging runtime, and remains aligned with the integration documentation.
 
-Run all tests from the repository root:
+The complete test suite runs from the repository root with:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1

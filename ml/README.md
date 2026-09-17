@@ -4,7 +4,7 @@ This guide reproduces the CIC-IDS-2017 research workflow in chronological order.
 
 The raw and processed datasets, MLflow and Optuna databases, generated reports, and model binaries are local artifacts and are not committed. The notebooks retain their executed outputs, and selected final diagnostics are published under `reports/published/`.
 
-## 1. Create the environment
+## 1. Environment setup
 
 From the repository root:
 
@@ -27,7 +27,7 @@ python -c "import torch; print(torch.__version__); print(torch.cuda.is_available
 
 Neural screening and tuned XGBoost training use CUDA when required by their workflow. All recorded inference latency and throughput measurements use CPU inference for a consistent deployment comparison.
 
-## 2. Place the merged source dataset
+## 2. Merged source dataset
 
 Download the official CIC-IDS-2017 flow CSV exports and concatenate them without cleaning into:
 
@@ -35,11 +35,11 @@ Download the official CIC-IDS-2017 flow CSV exports and concatenate them without
 ml/data/raw/cicids2017_merged.csv
 ```
 
-Do not commit or overwrite this file. See [DATASET.md](DATASET.md) for provenance and feature meanings.
+This source file remains local and uncommitted. [DATASET.md](DATASET.md) records its provenance and feature meanings.
 
-## 3. Explore and clean the data
+## 3. Data exploration and cleaning
 
-Open and run:
+Notebook 1 is executed with:
 
 ```powershell
 jupyter lab ml/notebooks/01_data_exploration.ipynb
@@ -51,9 +51,9 @@ Notebook 1 investigates the raw shape, target, class imbalance, missing and infi
 ml/data/processed/cicids2017_cleaned.parquet
 ```
 
-## 4. Prepare features and protect the test split
+## 4. Feature preparation and protected split
 
-Open and run:
+Notebook 2 is executed with:
 
 ```powershell
 jupyter lab ml/notebooks/02_feature_engineering.ipynb
@@ -61,16 +61,16 @@ jupyter lab ml/notebooks/02_feature_engineering.ipynb
 
 Notebook 2 removes the four identifier or leakage-prone columns, defines the 71 eligible source features, creates the reproducible stratified partitions, calculates mutual-information and correlation diagnostics, and documents the optional seven-feature reduction. It does not fit a final model or use the protected test set for model selection.
 
-## 5. Run the screening rounds
+## 5. Model-screening rounds
 
-Run the complete baseline and tree matrices:
+The complete baseline and tree matrices execute with:
 
 ```powershell
 ids-run-baselines
 ids-run-trees
 ```
 
-Run the neural families that produced the eight completed configurations used in the published investigation:
+The neural families that produced the eight completed configurations in the published investigation execute with:
 
 ```powershell
 ids-run-neural --models mlp resnet
@@ -80,9 +80,9 @@ The larger neural matrix was stopped midway. FT-Transformer and TabNet required 
 
 Every screening command trains models, records metrics and artifacts in MLflow, skips matching successful configurations by default, and prints a leaderboard. Use `--rerun` only to intentionally duplicate completed work.
 
-## 6. Investigate screening results
+## 6. Screening-results investigation
 
-Open the committed read-only investigation:
+The committed read-only investigation opens with:
 
 ```powershell
 jupyter lab ml/notebooks/03_model_screening_analysis.ipynb
@@ -100,7 +100,7 @@ ids-show-results --round neural
 
 These commands query existing MLflow records; they do not train or score models.
 
-## 7. Tune XGBoost and LightGBM
+## 7. XGBoost and LightGBM tuning
 
 First smoke-test the training paths without starting full studies:
 
@@ -108,7 +108,7 @@ First smoke-test the training paths without starting full studies:
 ids-tune-trees search --smoke-only
 ```
 
-Run or resume 20 successful trials per model:
+The resumable studies target 20 successful trials per model:
 
 ```powershell
 ids-tune-trees search --target-trials 20
@@ -118,7 +118,7 @@ ids-tune-trees search --target-trials 20
 
 XGBoost tuning uses CUDA. LightGBM tuning uses the deterministic CPU build installed for this project.
 
-## 8. Verify the strongest trials
+## 8. Strongest-trial verification
 
 ```powershell
 ids-tune-trees verify
@@ -135,7 +135,7 @@ ids-tune-trees compare-original-xgboost
 
 This command trains only missing comparison configurations and does not participate directly in automatic final selection.
 
-## 9. Freeze the selected model
+## 9. Selected-model freeze
 
 ```powershell
 ids-tune-trees freeze-final
@@ -145,7 +145,7 @@ This read-only selection command chooses the verified tuned XGBoost run with the
 
 The committed specification records the completed project's frozen recipe. A fresh reproduction must recreate compatible source MLflow runs before it can regenerate or validate that recipe.
 
-## 10. Perform the one-time final evaluation
+## 10. One-time final evaluation
 
 ```powershell
 ids-tune-trees evaluate-final
@@ -156,11 +156,11 @@ ids-tune-trees final-report
 
 The published project has already completed this step. Its result is final and must not be used to restart tuning. `final-report` is read-only.
 
-## 11. Read the published evidence
+## 11. Published evidence
 
 [RESULTS.md](RESULTS.md) explains the actual decisions using the recorded baseline, tree, neural, tuning, stability, and protected-test results. The selected final diagnostic CSV and PNG artifacts are available in [reports/published](reports/published/README.md) without the local MLflow database.
 
-## Continue to the application
+## Application handoff
 
 Model development ends after the frozen pipeline and protected-test result are produced. Runtime serving is owned by the separate [`ids_backend`](../backend/README.md) package, while the temporary replay producer belongs to [`ids_tools`](../tools/README.md). See the [application guide](../docs/APPLICATION.md) for the flow contract, setup, endpoints, and execution commands.
 

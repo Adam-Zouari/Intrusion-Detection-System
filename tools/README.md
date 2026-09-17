@@ -6,7 +6,7 @@ The `ids_tools` package contains local utilities that exercise the application b
 |---|---|
 | `src/ids_tools/replay_flows.py` | Streams cleaned CIC-IDS-2017 rows individually to the backend while keeping ground-truth labels private. |
 
-Run the replay producer after starting the backend:
+The replay producer runs after the backend has started:
 
 ```powershell
 ids-generate-flows --count 100 --interval-ms 500

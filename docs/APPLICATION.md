@@ -35,7 +35,7 @@ Each request contains the original flat CICFlowMeter row without `Label`:
 
 The backend creates its own database ID and reception timestamp. The sender does not need to create schema, event, or database identifiers.
 
-## Start the application
+## Application startup
 
 From the repository root:
 
@@ -75,7 +75,7 @@ The generator keeps the dataset `Label` private, sends each flow once, and print
 
 ### Live CICFlowMeter
 
-Set the source name before starting the backend:
+For live capture, the backend source name is set before startup:
 
 ```powershell
 $env:IDS_SOURCE_NAME = "Live CICFlowMeter"

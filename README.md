@@ -11,7 +11,7 @@ The final model achieved:
 
 See the [complete results and decision record](ml/RESULTS.md) for baseline comparisons, tuning evidence, class-level results, and limitations.
 
-## Review the project
+## Project journey and evidence
 
 The project is intended to be read in this order:
 
@@ -39,7 +39,7 @@ Merged CIC-IDS-2017 CSV
     -> one protected 20% test evaluation
 ```
 
-## Reproduce the work
+## Reproduction
 
 The detailed [machine-learning workflow guide](ml/README.md) gives the environment setup and commands in execution order. The raw and processed datasets, local MLflow and Optuna stores, generated reports, and native booster backup remain local. The frozen multiclass Joblib model required by the application is committed.
 
@@ -91,7 +91,7 @@ See the [application guide](docs/APPLICATION.md) for the shared backend and dash
 
 ## Tests
 
-Run the data-free test suite locally:
+The data-free test suite runs locally with:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1

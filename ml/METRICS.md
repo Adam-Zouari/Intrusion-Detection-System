@@ -38,7 +38,7 @@ $$
 \text{Macro F1} = \frac{1}{K}\sum_{c=1}^{K} F1_c
 $$
 
-Use the fixed set of dataset classes for $K$. If a precision, recall, or F1 denominator is zero, record that class's corresponding score as 0 so every run follows the same defined convention.
+The fixed set of dataset classes defines $K$. When a precision, recall, or F1 denominator is zero, the corresponding class score is recorded as 0 so every run follows the same convention.
 
 Every class contributes equally, regardless of how many samples it contains. This makes macro F1 suitable for the highly imbalanced CIC-IDS-2017 dataset: a model cannot obtain a strong primary score merely by performing well on `BENIGN` and frequent attack classes. It must balance precision and recall across all classes.
 

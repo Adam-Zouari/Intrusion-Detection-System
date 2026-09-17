@@ -14,7 +14,7 @@ The `ids_backend` package owns the deployable flow-classification service. It is
 
 The package reads `ml/final_model_spec.json` as its immutable schema contract. Loading the current Joblib artifact still requires `ids_ml` to be installed because Python serialization records the original model-wrapper class path. The backend does not otherwise import training modules directly.
 
-Run it from the repository root after installing the project:
+After project installation, the backend runs from the repository root with:
 
 ```powershell
 ids-serve
