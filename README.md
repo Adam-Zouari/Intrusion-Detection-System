@@ -6,7 +6,7 @@ The final model achieved:
 
 - **0.9602 macro F1** across 15 classes;
 - **99.991% binary attack recall**;
-- **13.31 ms CPU p99 complete-pipeline latency**; and
+- **13.31 ms model-pipeline CPU p99 inference latency**; and
 - approximately **51,090 flows per second** in the recorded batch-throughput test.
 
 See the [complete results and decision record](ml/RESULTS.md) for baseline comparisons, tuning evidence, class-level results, and limitations.

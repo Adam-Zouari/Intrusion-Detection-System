@@ -22,33 +22,25 @@ Detection occurs after a flow terminates or reaches its inactivity or maximum-du
 
 The fork retains CICFlowMeter's MIT license, included as `CICFlowMeter-LICENSE.txt` and inside the distribution. The IDS repository's Apache license does not replace the upstream license.
 
-## Requirements
+## Requirements and tested environment
 
-- Windows
-- Java available as `java.exe`
-- Npcap with WinPcap-compatible API support
+- 64-bit Windows
+- 64-bit Java available as `java.exe`
+- Npcap with WinPcap-compatible API support enabled
 - The IDS Python package installed from this repository
 - The backend running locally
 - Administrator permissions when required by the local Npcap configuration
 
-This release is tested and supported on Windows only.
+The successful project acceptance test used 64-bit Windows build `26200`, 64-bit Java `23.0.2`, and Npcap `1.81` with WinPcap-compatible mode enabled. That Npcap installation had administrator-only capture disabled; another installation may still require an elevated terminal. This release is tested and supported on Windows only.
 
 ## Live-capture startup
 
-From the IDS repository root, start the backend in one PowerShell terminal:
+Complete the shared environment, backend, and dashboard setup in the [application guide](../../docs/APPLICATION.md#application-startup). For live capture, set the source name before starting the backend:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 $env:IDS_SOURCE_NAME = "Live CICFlowMeter"
 ids-serve
-```
-
-The dashboard starts in another terminal with:
-
-```powershell
-cd frontend
-npm install
-npm run dev
 ```
 
 Then launch the bundled integration from an Administrator PowerShell terminal when Npcap requires elevated capture access:
@@ -79,10 +71,12 @@ After CICFlowMeter opens, select the active network interface and start capture.
 
 ## Reproducible demonstration
 
-The synthetic replay producer remains supported when live capture or the original dataset is unavailable:
+Synthetic replay remains available as a deterministic demonstration when the cleaned dataset exists at `ml/data/processed/cicids2017_cleaned.parquet`:
 
 ```powershell
 ids-generate-flows --count 100 --interval-ms 500
 ```
 
 Both producers send the same flat flow contract to the same backend endpoint.
+
+Live CICFlowMeter capture does not require the CIC-IDS-2017 dataset. The [application guide](../../docs/APPLICATION.md#synthetic-replay) documents how Notebook 1 produces the cleaned Parquet file required only by replay.

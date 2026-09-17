@@ -2,7 +2,7 @@
 
 This guide reproduces the CIC-IDS-2017 research workflow in chronological order. Static dataset semantics live in [DATASET.md](DATASET.md), metric definitions in [METRICS.md](METRICS.md), and the completed decision record in [RESULTS.md](RESULTS.md).
 
-The raw and processed datasets, MLflow and Optuna databases, generated reports, and model binaries are local artifacts and are not committed. The notebooks retain their executed outputs, and selected final diagnostics are published under `reports/published/`.
+The raw and processed datasets, MLflow and Optuna databases, generated reports, native booster backup, and non-final model artifacts remain local and uncommitted. The frozen multiclass Joblib model used by the application is committed. The notebooks retain their executed outputs, and selected final diagnostics are published under `reports/published/`.
 
 ## 1. Environment setup
 

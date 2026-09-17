@@ -82,7 +82,7 @@ The strongest verified setting from each boosting family was evaluated across id
 | XGBoost | 0.972492 | 0.000432 | 0.972028 | 0.972884 | 0.000855 |
 | LightGBM | 0.962862 | 0.007405 | 0.957856 | 0.971369 | 0.013513 |
 
-XGBoost was stronger on average and substantially more stable. LightGBM remained competitive on the original split but varied considerably more when the development split changed. This evidence resolved the close single-split comparison in favor of tuned XGBoost.
+Across the three tested development splits, XGBoost had higher mean macro F1 and lower observed variability. LightGBM remained competitive on the original split but varied more when the development split changed. These three runs are descriptive stability evidence rather than a formal statistical-significance test; within this fixed comparison budget, they supported selecting tuned XGBoost.
 
 ### Original versus tuned XGBoost
 
@@ -135,6 +135,14 @@ The frozen recipe was refitted without early stopping on all 2,259,801 developme
 | Batch throughput | 51,089.8 flows/s |
 | Serialized pipeline size | 6.14 MiB |
 
+### Inference measurement protocol
+
+Inference was measured on the same 12th Gen Intel Core i7-12700H machine used for the completed experiment, running 64-bit Windows build `26200`, Python `3.10.11`, scikit-learn `1.7.2`, and XGBoost `3.2.0`. XGBoost was switched to CPU prediction before timing.
+
+The timing inputs were fixed rows from the outer validation partition so screening and final-model measurements used an identical operational sample without making repeated test-set calls. After 50 untimed warm-up predictions, 1,000 distinct single-flow rows were measured individually with `perf_counter`; p50, p95, and p99 were calculated from those durations. Throughput used a fixed 10,000-flow batch repeated five times after an untimed warm-up batch.
+
+Each timed call covered the serialized model pipeline's feature selection, protocol encoding, preprocessing, XGBoost prediction, and label output. It did not include CICFlowMeter capture, HTTP transport or request validation, SQLite persistence, Server-Sent Events, or dashboard rendering. The reported latency is therefore model-pipeline inference latency, not end-to-end application latency.
+
 Outer-validation macro F1 was `0.972028`; protected-test macro F1 was `0.960157`, a reduction of approximately `0.01187`. The change is noticeable but does not indicate catastrophic overfitting. The test score remains a strong result across the fixed 15-class label set.
 
 ### Per-class results
@@ -169,12 +177,12 @@ The raw and normalized matrices are available as [published final artifacts](rep
 
 ![Top-30 final XGBoost feature importances](reports/published/final/tree_feature_importance_top30.png)
 
-Importance is a diagnostic of how often and how strongly the fitted trees used a transformed feature; it does not establish causality or justify automatic deletion. The model's use of protocol, ports, payload summaries, flags, and timing features may partly reflect CIC-IDS-2017-specific traffic patterns.
+XGBoost gain importance measures the average improvement in the training objective produced by splits using a transformed feature. It does not measure usage frequency, establish causality, or justify automatic feature deletion. The model's use of protocol, ports, payload summaries, flags, and timing features may partly reflect CIC-IDS-2017-specific traffic patterns.
 
 ## Limitations and conclusion
 
 This result demonstrates excellent performance and strong CPU inference characteristics on the fixed random stratified CIC-IDS-2017 benchmark. It does not establish equivalent behavior on another network, capture period, CICFlowMeter version, or attack distribution. Dataset-specific port, host, or attack-session patterns may make the benchmark easier than a real deployment.
 
-The local application now loads this frozen pipeline and performs immediate completed-flow inference. Its current producer replays cleaned CIC-IDS-2017 rows; direct capture integration and external-dataset validation remain separate work.
+The local application loads this frozen pipeline and performs immediate completed-flow inference. Both the cleaned-data replay producer and the tested Windows CICFlowMeter integration send completed flows directly to the same backend contract.
 
 The protected-test result is final. It must be reported as observed and must not be used to start another tuning round.

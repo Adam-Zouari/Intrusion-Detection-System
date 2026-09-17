@@ -27,11 +27,11 @@ Both producers send one completed flow at a time through the same strict backend
 
 ## Flow contract
 
-Each request contains the original flat CICFlowMeter row without `Label`:
+Each request contains a normalized flat 75-column payload derived from one completed CICFlowMeter flow:
 
 - `Flow ID`, `Src IP`, `Dst IP`, and `Timestamp` are retained as log metadata.
 - The frozen 71 source features are passed to the complete serialized pipeline.
-- `Label`, `ClassLabel`, unknown columns, missing columns, NaN, infinity, and invalid ranges are rejected.
+- Export-only labels, constants, and unsupported columns are omitted by the live publisher. The backend rejects `Label`, `ClassLabel`, unknown columns, missing columns, NaN, infinity, and invalid ranges.
 
 The backend creates its own database ID and reception timestamp. The sender does not need to create schema, event, or database identifiers.
 
@@ -57,7 +57,7 @@ Choose one of the two supported flow producers.
 
 ### Synthetic replay
 
-Replay completed flows from the cleaned dataset:
+Synthetic replay requires the cleaned dataset created by Notebook 1 at `ml/data/processed/cicids2017_cleaned.parquet`. With that file available, completed flows are replayed with:
 
 ```powershell
 ids-generate-flows --count 100 --interval-ms 500
@@ -102,7 +102,7 @@ The launcher verifies `/api/model`, extracts the tested distribution under ignor
 | `IDS_HOST` | `127.0.0.1` | API bind address |
 | `IDS_PORT` | `8000` | API port |
 
-Model binaries, the SQLite database, and runtime logs remain local and ignored by Git. The API starts in a degraded state if the model is missing and explains the problem through `/api/health`.
+The frozen multiclass Joblib model used by the application is committed. The native booster backup, non-final model artifacts, SQLite database, and runtime logs remain local and ignored by Git. The API starts in a degraded state if the committed model is missing and explains the problem through `/api/health`.
 
 ## API
 
