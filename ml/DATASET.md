@@ -4,7 +4,7 @@ This document is the authoritative reference for dataset provenance, flow termin
 
 ## Dataset source
 
-The project uses the [official CIC-IDS-2017 dataset](https://www.unb.ca/cic/datasets/ids-2017.html) produced by the Canadian Institute for Cybersecurity at the University of New Brunswick. The dataset is not distributed by this repository and is not covered by this project's Apache 2.0 license.
+The project uses the [official CIC-IDS-2017 dataset](https://www.unb.ca/cic/datasets/ids-2017.html) produced by the Canadian Institute for Cybersecurity at the University of New Brunswick. The dataset is not distributed by this repository and is not covered by this project's [PolyForm Strict License 1.0.0](../LICENSE).
 
 The dataset publisher requests the following citation:
 

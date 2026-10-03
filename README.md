@@ -103,4 +103,6 @@ GitHub Actions runs the Python tests and compilation checks plus the dashboard l
 
 Copyright © 2026 Adam Zouari.
 
-The source code is licensed under the [Apache License 2.0](LICENSE). CICFlowMeter retains its included [MIT license](integrations/cicflowmeter/CICFlowMeter-LICENSE.txt). CIC-IDS-2017 is not covered by this repository's license and should be cited separately; see [ml/DATASET.md](ml/DATASET.md).
+The original project material is licensed under [PolyForm Strict License 1.0.0](LICENSE). Use is permitted for the purposes defined in the license, including noncommercial use; modification and redistribution are not permitted under its grant.
+
+Third-party components retain their own licenses. CICFlowMeter retains its included [MIT license](integrations/cicflowmeter/CICFlowMeter-LICENSE.txt). CIC-IDS-2017 is not covered by this repository's license and should be cited separately; see [ml/DATASET.md](ml/DATASET.md).

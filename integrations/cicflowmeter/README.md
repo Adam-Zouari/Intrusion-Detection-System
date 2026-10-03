@@ -20,7 +20,7 @@ Detection occurs after a flow terminates or reaches its inactivity or maximum-du
 - Bundled file: `CICFlowMeter-IDS-Windows-1.0.0.zip`
 - SHA-256: `DF1A2F33A6338065DEAB48ECB8132B26588A49C2D5A2B49EC2BD182FC318D6CF`
 
-The fork retains CICFlowMeter's MIT license, included as `CICFlowMeter-LICENSE.txt` and inside the distribution. The IDS repository's Apache license does not replace the upstream license.
+The fork retains CICFlowMeter's MIT license, included as `CICFlowMeter-LICENSE.txt` and inside the distribution. The IDS repository's [PolyForm Strict License 1.0.0](../../LICENSE) does not replace or restrict this upstream license.
 
 ## Requirements and tested environment
 
