@@ -138,6 +138,23 @@ Operational measurements must be collected under documented, consistent conditio
 
 Training time is the elapsed wall-clock time, in seconds, required to fit the complete trainable pipeline on the training data. It includes fitted preprocessing and model fitting, but excludes dataset loading, exploratory analysis, and test-set evaluation.
 
+Optuna reports the estimated standalone fit cost as `training_time_seconds`: shared preprocessing time plus the individual booster fit. The shared preprocessing actually runs once per search invocation; summing those estimates across trials overcounts study time.
+
+### Training memory
+
+- `peak_training_ram_mib`: sampled peak resident memory (RSS, or working set on Windows) of the training process during the fit. This includes memory already resident when the fit starts but excludes separate child processes. A sampled peak can miss short spikes.
+- `peak_training_vram_mib`: for PyTorch CUDA, the peak allocated according to PyTorch's allocator; for native CUDA training, the sampled GPU memory attributed to this process when available. These measurements do not have the same scope.
+- `peak_training_vram_reserved_mib`: PyTorch's peak reserved CUDA allocator memory, including allocations kept in the allocator cache.
+- `peak_training_device_vram_mib`: sampled peak device-wide GPU memory, where available. It includes other processes and is not a substitute for process or allocator memory.
+
+The measurement window covers fitted preprocessing, epoch selection (including its inner validation), and refitting when they occur inside the fit. It ends before the fitted model is evaluated on the outer validation or test partition, benchmarked, plotted, or serialized. Each Optuna trial has a separate booster-fit window and starts with the shared matrices already resident. CPU runs have no CUDA memory measurement. See the recorded method and scope before comparing memory numbers; missing values are not zeros.
+
+### Neural epoch diagnostics
+
+Selection logs `training_loss`, `inner_validation_macro_f1`, and `epoch_duration_seconds` after each epoch. Selection duration includes the inner-validation prediction and scoring. Fixed-epoch refitting logs `refit_training_loss` and `refit_epoch_duration_seconds`; refitting does not score the stopping set. Epoch duration excludes the terminal and MLflow logging itself.
+
+The run summary records the selected epoch, number of attempted selection epochs, best observed inner macro F1, inner macro F1 at the selected epoch, `epoch_selection_time_seconds`, and `final_refit_time_seconds`. The stage totals include preprocessing and library bookkeeping within the stage. Dividing a stage total by its epoch count does not reproduce the direct epoch timing.
+
 ### Single-flow prediction latency
 
 Single-flow latency measures the complete path for one flow through **all fitted preprocessing transformations and model prediction**. After warm-up runs, collect enough repeated measurements to report:
@@ -189,6 +206,7 @@ The XGBoost and LightGBM tuning studies also record the following diagnostics. T
 | Lowest observed inner-validation multiclass log loss | `best_validation_log_loss` |
 | Training-monitor multiclass log loss at the retained iteration | `training_monitor_log_loss` |
 | Booster-only fitting time, excluding the shared preprocessing fit | `booster_training_time_seconds` |
+| Shared preprocessing duration, recorded for context on each trial | `shared_preprocessing_time_seconds` |
 | Iteration with the highest inner-validation macro F1 | `best_macro_iteration` |
 | Iteration with the lowest inner-validation log loss | `best_loss_iteration` |
 | Fixed iteration count used for a verification refit | `selected_boosting_iterations` |

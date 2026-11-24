@@ -145,7 +145,8 @@ The package also reuses shared project modules rather than redefining them:
 - `ids_ml.data` for dataset, labels, split fingerprints, encoding, and class weights.
 - `ids_ml.preprocessing` for the fixed one-hot `Protocol` transformer.
 - `ids_ml.evaluation` for metrics, confusion matrices, artifacts, latency, and throughput.
-- `ids_ml.tracking` for the local MLflow backend.
+- `ids_ml.tracking` for the local MLflow backend, run provenance, and environment snapshots.
+- `ids_ml.telemetry` for memory measurements scoped to each trial or refit.
 - `ids_ml.tree_models` for the common tree-importance artifact format.
 
 ## Execution flow

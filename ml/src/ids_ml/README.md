@@ -12,7 +12,9 @@ The installable `ids_ml` package owns reusable data contracts, preprocessing, mo
 | `preprocessing.py` | Builds shared feature selection and fixed one-hot `Protocol` preprocessing for scikit-learn and tree pipelines. |
 | `evaluation.py` | Calculates documented metrics, creates class reports and confusion matrices, measures complete-pipeline CPU inference, and logs evaluation artifacts. |
 | `plotting.py` | Selects one headless-safe Matplotlib backend for every generated experiment figure. |
-| `tracking.py` | Configures the local SQLite MLflow backend and artifact root. |
+| `tracking.py` | Configures local MLflow and records run provenance, commands, hardware, and software. |
+| `telemetry.py` | Measures memory within each fit and records what each reading covers. |
+| `epoch_logging.py` | Publishes live, phase-specific epoch metrics to the terminal and MLflow. |
 | `screening.py` | Runs the shared MLflow fit/evaluate lifecycle and smoke-fit procedure. |
 | `reporting.py` | Queries compatible MLflow runs and builds coverage, leaderboard, comparison, shortlist, and artifact views. |
 | `screening_workflows.py` | Implements the baseline, tree, neural, and result-inspection command-line workflows. |
@@ -21,7 +23,7 @@ The installable `ids_ml` package owns reusable data contracts, preprocessing, mo
 
 | Module | Responsibility |
 |---|---|
-| `baseline_models.py` | Dummy, SGD, Decision Tree, Random Forest, Histogram Gradient Boosting, and scikit-learn MLP screening definitions. |
+| `baseline_models.py` | Scikit-learn model definitions and the MLP's inner epoch selection and full-fitting-partition refit. |
 | `tree_models.py` | ExtraTrees, XGBoost, and LightGBM screening definitions, weighting behavior, target encoding, and importance diagnostics. |
 | `neural/preprocessing.py` | Neural scaling, category conversion, batching, loss weights, device selection, reproducibility, and cleanup. |
 | `neural/rtdl.py` | RTDL MLP, ResNet, and FT-Transformer training, epoch selection, refitting, and CPU prediction. |

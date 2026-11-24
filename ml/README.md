@@ -70,6 +70,10 @@ ids-run-baselines
 ids-run-trees
 ```
 
+The scikit-learn MLP stays on CPU. It uses the same explicit stratified 10% stopping split as the PyTorch challengers, with the scaler and any balanced weights fitted only on the inner-training rows. Both weighting modes select the epoch using unweighted macro F1 across the fixed 15 labels. The earliest highest-scoring epoch is retained; patience resets on an improvement of at least `1e-4` over the last qualifying score. A fresh model and preprocessor then fit all fitting rows for that epoch count, with balanced weights recalculated when applicable. The outer validation set is scored only after refitting.
+
+Selection logs loss, inner-validation macro F1, and elapsed time per epoch in the terminal and MLflow. Refit logs loss and duration under separate names. The MLP logs both inner split fingerprints and per-class support in the run context. See [METRICS.md](METRICS.md) for the timing boundaries.
+
 The neural families that produced the eight completed configurations in the published investigation execute with:
 
 ```powershell
@@ -79,6 +83,16 @@ ids-run-neural --models mlp resnet
 The larger neural matrix was stopped midway. FT-Transformer and TabNet required substantial computation while their monitored validation behavior showed no meaningful improvement. This was a resource-allocation decision, not proof that those architectures can never perform well.
 
 Every screening command trains models, records metrics and artifacts in MLflow, skips matching successful configurations by default, and prints a leaderboard. Use `--rerun` only to intentionally duplicate completed work.
+
+To replace existing MLP baseline results with the explicit-split version without rerunning other models:
+
+```powershell
+ids-run-baselines --models mlp --rerun
+```
+
+Use the printed run-group summary to confirm **4/4** new fits finished. The leaderboard alone can fall back to older successful results for a failed configuration.
+
+New training runs record the workflow command as **Source**, use the effective Git user name for **Created by** if configured, and include Git revision and an `environment.json` artifact. Without a Git name, MLflow supplies the creator. Search trials, verification/stability fits, and final refits use the same tracking. Memory is recorded per fit when observable, with measurement method and scope recorded alongside it. Earlier runs without telemetry are not backfilled.
 
 ## 6. Screening-results investigation
 
@@ -99,6 +113,7 @@ ids-show-results --round neural
 ```
 
 These commands query existing MLflow records; they do not train or score models.
+Generated leaderboard CSVs include available memory measurements. Missing, unobserved, and inapplicable values stay blank.
 
 ## 7. XGBoost and LightGBM tuning
 
@@ -117,6 +132,7 @@ ids-tune-trees search --target-trials 20
 `--target-trials` is the total target, so interrupted studies resume without repeating successful trials. Optuna search uses an inner validation holdout and never evaluates the outer validation or protected test partitions.
 
 XGBoost tuning uses CUDA. LightGBM tuning uses the deterministic CPU build installed for this project.
+Each new Optuna trial measures memory during its own booster fit. The matrices are prepared once per search invocation and already resident at the start of each trial. The tuning report exports trial and verification CSVs with the available memory fields.
 
 ## 8. Strongest-trial verification
 
@@ -178,4 +194,4 @@ The [source-package guide](src/ids_ml/README.md) documents module ownership. The
 python -m pytest -q
 ```
 
-The tests do not require CIC-IDS-2017, a GPU, MLflow state, Optuna state, or model training.
+The tests do not require CIC-IDS-2017, a GPU, or existing MLflow or Optuna state. Training-path tests use short synthetic fits and temporary tracking stores instead of running the benchmark suites.
