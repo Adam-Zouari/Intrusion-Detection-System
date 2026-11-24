@@ -8,13 +8,21 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.metrics import f1_score
 
 try:
     import tomllib
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
-from ids_ml.data import LABEL_ORDER, transformed_feature_count
+from ids_ml import baseline_models, epoch_logging
+from ids_ml.data import (
+    LABEL_ORDER,
+    balanced_sample_weights,
+    encode_labels,
+    make_inner_split,
+    transformed_feature_count,
+)
 from ids_ml.evaluation import calculate_metrics_and_diagnostics
 from ids_ml.experiment_specs import (
     expected_configuration_keys,
@@ -68,6 +76,150 @@ def test_protocol_contract_produces_expected_transformed_counts() -> None:
         "ft_transformer": "embedding",
         "tabnet": "embedding",
     }
+
+
+@pytest.mark.parametrize("mode", ["unweighted", "balanced"])
+def test_baseline_mlp_uses_fixed_holdout_and_refits_fresh(mode, monkeypatch):
+    spec = next(
+        s for s in specs_for_round("baseline")
+        if s.model_key == "mlp" and s.weighting_mode == mode
+    )
+    rng = np.random.default_rng(42)
+    labels = [LABEL_ORDER[0]] * 120 + LABEL_ORDER[1:] * 20
+    y = pd.Series(labels, index=np.arange(4_000, 4_000 + len(labels)))
+    X = pd.DataFrame(
+        {"Duration": rng.random(len(y)), "Protocol": rng.choice([6, 17], len(y))},
+        index=y.index,
+    )
+    split = make_inner_split(y)
+    inner_train = y.iloc[split.training_positions]
+    inner_stop = y.iloc[split.stopping_positions]
+    adapter = baseline_models.build_adapter(spec, {spec.feature_set: list(X)})
+    adapter.pipeline.named_steps["classifier"].set_params(
+        hidden_layer_sizes=(8,), batch_size=32, learning_rate_init=1e-12
+    )
+    assert adapter.parameters()["early_stopping_metric"] == "inner_validation_macro_f1"
+
+    logged = []
+    monkeypatch.setattr(epoch_logging.mlflow, "active_run", lambda: True)
+    monkeypatch.setattr(
+        epoch_logging.mlflow,
+        "log_metrics",
+        lambda values, step, synchronous: logged.append((step, values)),
+    )
+    fitted_scaler_rows = []
+    original_scaler_fit = baseline_models.StandardScaler.fit
+
+    def check_scaler_fit(self, X, *args, **kwargs):
+        fitted_scaler_rows.append(X.index.tolist())
+        return original_scaler_fit(self, X, *args, **kwargs)
+
+    monkeypatch.setattr(baseline_models.StandardScaler, "fit", check_scaler_fit)
+    calls = []
+    original_partial_fit = baseline_models.MLPClassifier.partial_fit
+
+    def check_partial_fit(self, X, y_encoded, classes=None, sample_weight=None):
+        assert self.early_stopping is False
+        assert isinstance(self.random_state, np.random.RandomState)
+        first = not hasattr(self, "coefs_")
+        if first:
+            np.testing.assert_array_equal(classes, np.arange(len(LABEL_ORDER)))
+        else:
+            assert classes is None
+        fitting_labels = inner_train if len(X) == len(inner_train) else y
+        np.testing.assert_array_equal(y_encoded, encode_labels(fitting_labels))
+        if mode == "balanced":
+            np.testing.assert_allclose(sample_weight, balanced_sample_weights(fitting_labels))
+        else:
+            assert sample_weight is None
+        before = self.random_state.get_state()
+        result = original_partial_fit(
+            self, X, y_encoded, classes=classes, sample_weight=sample_weight
+        )
+        after = self.random_state.get_state()
+        assert before[2] != after[2] or not np.array_equal(before[1], after[1])
+        calls.append((self, first, len(X)))
+        return result
+
+    monkeypatch.setattr(baseline_models.MLPClassifier, "partial_fit", check_partial_fit)
+    expected = []
+
+    def check_score(y_true, y_pred, **kwargs):
+        np.testing.assert_array_equal(y_true, encode_labels(inner_stop))
+        assert "sample_weight" not in kwargs
+        score = f1_score(y_true, y_pred, **kwargs)
+        expected.append(score)
+        return score
+
+    monkeypatch.setattr(epoch_logging, "f1_score", check_score)
+    summary = adapter.fit(X, y).metrics
+    assert fitted_scaler_rows == [inner_train.index.tolist(), y.index.tolist()]
+    selection_model = calls[0][0]
+    refit_model = adapter.pipeline.named_steps["classifier"]
+    assert selection_model is not refit_model
+    assert selection_model.random_state is not refit_model.random_state
+    assert calls == (
+        [(selection_model, i == 0, len(inner_train)) for i in range(len(expected))]
+        + [(refit_model, i == 0, len(y)) for i in range(int(summary["best_epoch"]))]
+    )
+    assert selection_model.t_ == len(inner_train) * len(expected)
+    assert refit_model.t_ == len(y) * summary["best_epoch"]
+    assert 1 < len(expected) < selection_model.max_iter
+    selection = logged[: len(expected)]
+    refit = logged[len(expected):]
+    assert [step for step, _ in selection] == list(range(1, len(expected) + 1))
+    assert [metric["inner_validation_macro_f1"] for _, metric in selection] == pytest.approx(
+        expected
+    )
+    assert all(metric["epoch_duration_seconds"] >= 0 for _, metric in selection)
+    assert [metric["refit_training_loss"] for _, metric in refit] == pytest.approx(
+        refit_model.loss_curve_
+    )
+    assert all(
+        set(metric) == {"refit_training_loss", "refit_epoch_duration_seconds"}
+        for _, metric in refit
+    )
+    assert summary["best_epoch"] == np.argmax(expected) + 1
+    assert summary["epochs_trained"] == len(expected)
+    assert summary["best_inner_validation_macro_f1"] == pytest.approx(max(expected))
+
+
+def test_baseline_mlp_complete_fits_are_reproducible() -> None:
+    spec = next(s for s in specs_for_round("baseline") if s.model_key == "mlp")
+    rng = np.random.default_rng(42)
+    y = pd.Series(np.repeat(LABEL_ORDER, 20))
+    X = pd.DataFrame(
+        {"Duration": rng.random(len(y)), "Protocol": rng.choice([0, 6, 17], len(y))}
+    )
+    model_runs = []
+    for _ in range(2):
+        adapter = baseline_models.build_adapter(
+            spec, {spec.feature_set: list(X)}, smoke=True
+        )
+        adapter.pipeline.named_steps["classifier"].set_params(max_iter=3)
+        adapter.fit(X, y)
+        model_runs.append(adapter)
+
+    first, second = model_runs
+    np.testing.assert_array_equal(first.predict(X), second.predict(X))
+    np.testing.assert_allclose(
+        first.fit_result.selection_history["training_loss"],
+        second.fit_result.selection_history["training_loss"],
+        rtol=0,
+        atol=0,
+    )
+    assert first.fit_result.selected_epochs == second.fit_result.selected_epochs
+
+
+def test_baseline_mlp_rejects_inner_holdout_with_missing_classes() -> None:
+    spec = next(s for s in specs_for_round("baseline") if s.model_key == "mlp")
+    y = pd.Series([LABEL_ORDER[0]] * 120 + LABEL_ORDER[1:] * 6)
+    X = pd.DataFrame({"Duration": np.arange(len(y)), "Protocol": np.ones(len(y))})
+    adapter = baseline_models.build_adapter(
+        spec, {spec.feature_set: list(X)}, smoke=True
+    )
+    with pytest.raises(AssertionError, match="inner stopping is missing labels"):
+        adapter.fit(X, y)
 
 
 def test_round_filter_supports_every_nonempty_combination() -> None:

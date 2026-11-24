@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gc
-from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -12,26 +11,11 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import DataLoader, TensorDataset
 
-from ..data import (
-    EXPECTED_PROTOCOL_VALUES,
-    InnerSplit,
-    LABEL_ORDER,
-    RANDOM_STATE,
-    make_inner_split as make_shared_inner_split,
-)
+from ..data import EXPECTED_PROTOCOL_VALUES, LABEL_ORDER, RANDOM_STATE
 
 MAX_EPOCHS = 50
 EARLY_STOPPING_PATIENCE = 5
 INFERENCE_BATCH_SIZE = 8_192
-
-
-@dataclass
-class NeuralFitResult:
-    selected_epochs: int
-    epoch_selection_time_seconds: float
-    final_refit_time_seconds: float
-    selection_history: pd.DataFrame
-    final_history: pd.DataFrame
 
 
 def set_reproducible_seed(seed: int = RANDOM_STATE) -> None:
@@ -42,10 +26,6 @@ def set_reproducible_seed(seed: int = RANDOM_STATE) -> None:
     if torch.backends.cudnn.is_available():
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-
-
-def make_inner_split(y_fit: pd.Series) -> InnerSplit:
-    return make_shared_inner_split(y_fit)
 
 
 class NeuralPreprocessor:

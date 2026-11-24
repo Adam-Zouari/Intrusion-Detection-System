@@ -10,12 +10,12 @@ import mlflow
 import numpy as np
 import pandas as pd
 
-from ..data import RANDOM_STATE, class_preserving_sample, decode_labels
-from ..evaluation import log_line_figure, log_table_artifact
+from ..data import RANDOM_STATE, class_preserving_sample, decode_labels, make_inner_split
+from ..epoch_logging import EpochFitResult, inner_split_context, log_epoch_artifacts
+from ..evaluation import log_table_artifact
 from ..screening import AdapterMetadata, FitDetails
 from ..experiment_specs import ExperimentSpec
 from ..plotting import plt
-from .preprocessing import NeuralFitResult, make_inner_split
 from .rtdl import RTDLFlowClassifier
 from .tabnet import TabNetFlowClassifier
 
@@ -29,26 +29,6 @@ def _library(spec: ExperimentSpec) -> tuple[str, str]:
         else "rtdl-revisiting-models"
     )
     return package, importlib.metadata.version(package)
-
-
-def _log_neural_history(fit_result: NeuralFitResult) -> None:
-    log_table_artifact(
-        fit_result.selection_history,
-        "epoch_selection_history.csv",
-        "training",
-    )
-    log_line_figure(
-        fit_result.selection_history,
-        ["training_loss", "stopping_macro_f1"],
-        "epoch_selection_curves.png",
-        "Inner stopping-set epoch selection",
-        "training",
-    )
-    log_table_artifact(
-        fit_result.final_history,
-        "final_refit_history.csv",
-        "training",
-    )
 
 
 def _log_tabnet_attention(
@@ -106,11 +86,8 @@ class NeuralAdapter:
                 spec, selected_features, smoke=smoke
             )
         self.transformed_feature_count = self.classifier.transformed_feature_count
-        self.fit_result: NeuralFitResult | None = None
-        self.inner_training_rows = 0
-        self.inner_stopping_rows = 0
-        self.inner_training_fingerprint = ""
-        self.inner_stopping_fingerprint = ""
+        self.fit_result: EpochFitResult | None = None
+        self.inner_context: dict[str, object] = {}
         library, version = _library(spec)
         protocol_encoding = (
             "learned_embedding" if spec.protocol_mode == "embedding" else "one_hot"
@@ -132,34 +109,20 @@ class NeuralAdapter:
         )
 
     def parameters(self) -> dict[str, object]:
-        parameters: dict[str, object] = {
+        return {
             "transformed_feature_count": self.transformed_feature_count,
             "max_epochs": self.classifier.max_epochs,
-            "early_stopping_metric": "inner_macro_f1",
+            "early_stopping_metric": "inner_validation_macro_f1",
             "early_stopping_patience": self.classifier.patience,
             "batch_size": self.classifier.batch_size,
+            **self.classifier.resolved_parameters(),
         }
-        virtual_batch_size = getattr(self.classifier, "virtual_batch_size", None)
-        if virtual_batch_size is not None:
-            parameters["virtual_batch_size"] = virtual_batch_size
-        return parameters
 
     def fit(self, X: pd.DataFrame, y: pd.Series) -> FitDetails:
         inner_split = make_inner_split(y)
-        self.inner_training_rows = len(inner_split.training_positions)
-        self.inner_stopping_rows = len(inner_split.stopping_positions)
-        self.inner_training_fingerprint = inner_split.training_fingerprint
-        self.inner_stopping_fingerprint = inner_split.stopping_fingerprint
+        self.inner_context = inner_split_context(y, inner_split)
         self.fit_result = self.classifier.fit_with_inner_selection(X, y, inner_split)
-        return FitDetails(
-            metrics={
-                "epoch_selection_time_seconds": (
-                    self.fit_result.epoch_selection_time_seconds
-                ),
-                "final_refit_time_seconds": self.fit_result.final_refit_time_seconds,
-                "selected_epochs": float(self.fit_result.selected_epochs),
-            }
-        )
+        return FitDetails(metrics=self.fit_result.metrics())
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         return decode_labels(self.classifier.predict(X))
@@ -169,16 +132,13 @@ class NeuralAdapter:
             "selected_epochs": (
                 self.fit_result.selected_epochs if self.fit_result else None
             ),
-            "inner_training_rows": self.inner_training_rows,
-            "inner_stopping_rows": self.inner_stopping_rows,
-            "inner_training_fingerprint": self.inner_training_fingerprint,
-            "inner_stopping_fingerprint": self.inner_stopping_fingerprint,
+            **self.inner_context,
         }
 
     def log_diagnostics(self, X: pd.DataFrame, y: pd.Series) -> None:
         if self.fit_result is None:
             raise RuntimeError("Cannot log diagnostics before fitting.")
-        _log_neural_history(self.fit_result)
+        log_epoch_artifacts(self.fit_result)
         if isinstance(self.classifier, TabNetFlowClassifier):
             _log_tabnet_attention(self.classifier, X, y)
 

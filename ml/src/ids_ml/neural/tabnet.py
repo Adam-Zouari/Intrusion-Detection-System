@@ -7,25 +7,25 @@ from time import perf_counter
 import numpy as np
 import pandas as pd
 import torch
+from pytorch_tabnet.callbacks import Callback
 from pytorch_tabnet.metrics import Metric
 from pytorch_tabnet.tab_model import TabNetClassifier
-from sklearn.metrics import f1_score
 from torch import nn
 
 from ..data import (
     EXPECTED_PROTOCOL_VALUES,
+    InnerSplit,
     LABEL_ORDER,
     RANDOM_STATE,
     encode_labels,
     transformed_feature_count,
 )
+from ..epoch_logging import EpochFitResult, EpochReporter, fixed_label_macro_f1
 from ..experiment_specs import ExperimentSpec
 from .preprocessing import (
     EARLY_STOPPING_PATIENCE,
     INFERENCE_BATCH_SIZE,
     MAX_EPOCHS,
-    InnerSplit,
-    NeuralFitResult,
     NeuralPreprocessor,
     NeuralResourceOwner,
     balanced_loss_weights,
@@ -40,14 +40,27 @@ class MacroF1Metric(Metric):
         self._maximize = True
 
     def __call__(self, y_true: np.ndarray, y_score: np.ndarray) -> float:
-        return float(
-            f1_score(
-                y_true,
-                np.argmax(y_score, axis=1),
-                labels=np.arange(len(LABEL_ORDER)),
-                average="macro",
-                zero_division=0,
-            )
+        return fixed_label_macro_f1(y_true, np.argmax(y_score, axis=1))
+
+
+class TabNetEpochCallback(Callback):
+    """Use TabNet's native epoch events for the shared reporting format."""
+
+    def __init__(self, reporter: EpochReporter) -> None:
+        super().__init__()
+        self.reporter = reporter
+        self.started_at = 0.0
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.started_at = perf_counter()
+
+    def on_epoch_end(self, epoch, logs=None):
+        self.reporter.record(
+            epoch + 1,
+            self.started_at,
+            logs["loss"],
+            stopping_macro_f1=logs.get("stopping_macro_f1"),
+            learning_rate=logs["lr"],
         )
 
 
@@ -69,7 +82,7 @@ class TabNetFlowClassifier(NeuralResourceOwner):
         self.training_device = training_device()
         self.preprocessor: NeuralPreprocessor | None = None
         self.model: TabNetClassifier | None = None
-        self.fit_result: NeuralFitResult | None = None
+        self.fit_result: EpochFitResult | None = None
 
     @property
     def transformed_feature_count(self) -> int:
@@ -77,22 +90,41 @@ class TabNetFlowClassifier(NeuralResourceOwner):
             len(self.selected_features), self.spec.protocol_mode
         )
 
+    def _model_config(self) -> dict[str, object]:
+        return {
+            "n_d": 32,
+            "n_a": 32,
+            "n_steps": 5,
+            "gamma": 1.5,
+            "lambda_sparse": 1e-4,
+            "cat_idxs": [len(self.selected_features) - 1],
+            "cat_dims": [len(EXPECTED_PROTOCOL_VALUES)],
+            "cat_emb_dim": 2,
+        }
+
+    @staticmethod
+    def _optimizer_config() -> dict[str, float]:
+        return {"lr": 2e-2}
+
     def _build_model(self, device_name: str) -> TabNetClassifier:
         return TabNetClassifier(
-            n_d=32,
-            n_a=32,
-            n_steps=5,
-            gamma=1.5,
-            lambda_sparse=1e-4,
-            cat_idxs=[len(self.selected_features) - 1],
-            cat_dims=[len(EXPECTED_PROTOCOL_VALUES)],
-            cat_emb_dim=2,
+            **self._model_config(),
             optimizer_fn=torch.optim.Adam,
-            optimizer_params={"lr": 2e-2},
+            optimizer_params=self._optimizer_config(),
             seed=RANDOM_STATE,
             verbose=0,
             device_name=device_name,
         )
+
+    def resolved_parameters(self) -> dict[str, object]:
+        return {
+            "architecture": TabNetClassifier.__name__,
+            **{f"architecture__{name}": value for name, value in self._model_config().items()},
+            "optimizer": torch.optim.Adam.__name__,
+            **{f"optimizer__{name}": value for name, value in self._optimizer_config().items()},
+            "virtual_batch_size": self.virtual_batch_size,
+            "inner_validation_batch_size": self.batch_size,
+        }
 
     def _loss(self, targets: np.ndarray, device: torch.device) -> nn.Module:
         weights = (
@@ -101,14 +133,6 @@ class TabNetFlowClassifier(NeuralResourceOwner):
             else None
         )
         return nn.CrossEntropyLoss(weight=weights)
-
-    @staticmethod
-    def _history_frame(model: TabNetClassifier) -> pd.DataFrame:
-        history = pd.DataFrame(model.history.history)
-        if "loss" in history and "training_loss" not in history:
-            history = history.rename(columns={"loss": "training_loss"})
-        history.index = pd.RangeIndex(1, len(history) + 1, name="epoch")
-        return history
 
     @staticmethod
     def _move_model_to_device(
@@ -126,7 +150,7 @@ class TabNetFlowClassifier(NeuralResourceOwner):
 
     def fit_with_inner_selection(
         self, X: pd.DataFrame, y: pd.Series, inner_split: InnerSplit
-    ) -> NeuralFitResult:
+    ) -> EpochFitResult:
         y_encoded = encode_labels(y)
         device_name = self.training_device.type
         selection_start = perf_counter()
@@ -142,6 +166,7 @@ class TabNetFlowClassifier(NeuralResourceOwner):
         y_training = y_encoded[inner_split.training_positions]
         y_stopping = y_encoded[inner_split.stopping_positions]
         provisional = self._build_model(device_name)
+        selection_reporter = EpochReporter("selection")
         provisional.fit(
             X_training,
             y_training,
@@ -155,10 +180,11 @@ class TabNetFlowClassifier(NeuralResourceOwner):
             virtual_batch_size=self.virtual_batch_size,
             num_workers=0,
             drop_last=False,
+            callbacks=[TabNetEpochCallback(selection_reporter)],
         )
         selection_time = perf_counter() - selection_start
         selected_epochs = max(1, int(provisional.best_epoch) + 1)
-        selection_history = self._history_frame(provisional)
+        selection_history = selection_reporter.history()
 
         del provisional, X_training, X_stopping, y_training, y_stopping
         del inner_preprocessor
@@ -170,6 +196,7 @@ class TabNetFlowClassifier(NeuralResourceOwner):
         ).fit(X)
         X_final = self.preprocessor.transform_for_tabnet(X)
         self.model = self._build_model(device_name)
+        refit_reporter = EpochReporter("refit")
         self.model.fit(
             X_final,
             y_encoded,
@@ -180,15 +207,16 @@ class TabNetFlowClassifier(NeuralResourceOwner):
             virtual_batch_size=self.virtual_batch_size,
             num_workers=0,
             drop_last=False,
+            callbacks=[TabNetEpochCallback(refit_reporter)],
         )
         final_refit_time = perf_counter() - final_training_start
-        final_history = self._history_frame(self.model)
+        final_history = refit_reporter.history()
         self._move_model_to_device(self.model, torch.device("cpu"))
         self.training_device = torch.device("cpu")
         del X_final, y_encoded
         release_torch_memory()
 
-        self.fit_result = NeuralFitResult(
+        self.fit_result = EpochFitResult(
             selected_epochs=selected_epochs,
             epoch_selection_time_seconds=float(selection_time),
             final_refit_time_seconds=float(final_refit_time),
