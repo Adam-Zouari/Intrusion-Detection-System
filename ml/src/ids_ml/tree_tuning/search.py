@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gc
-import platform
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -22,7 +21,8 @@ from ..evaluation import (
     log_line_figure,
     log_table_artifact,
 )
-from ..tracking import setup_mlflow_experiment
+from ..telemetry import monitor_training
+from ..tracking import setup_mlflow_experiment, start_training_run
 from .training import (
     EARLY_STOPPING_PATIENCE,
     FEATURE_SET,
@@ -35,6 +35,7 @@ from .training import (
     WEIGHTING_MODE,
     BoosterFit,
     PreparedMatrices,
+    log_boosting_environment,
     predict_probabilities,
     prepare_matrices,
     train_booster,
@@ -142,7 +143,6 @@ def _trial_tags(
         "outer_validation_split_fingerprint": data.contract.validation_fingerprint,
         "test_split_fingerprint": data.contract.test_fingerprint,
         "split_seed": str(RANDOM_STATE),
-        "python_version": platform.python_version(),
     }
 
 
@@ -186,7 +186,14 @@ def run_search_trial(
     run_name = f"tune__{model_key}__trial_{trial.number:04d}"
     tags = _trial_tags(model_key, data, matrices, trial.number, selected_study_name)
     fit: BoosterFit | None = None
-    with mlflow.start_run(run_name=run_name, tags=tags) as active_run:
+    with start_training_run(
+        run_name=run_name, source="ids-tune-trees search", tags=tags
+    ) as active_run:
+        log_boosting_environment(
+            model_key,
+            training_device=tags["training_device"],
+            inference_device=tags["inference_device"],
+        )
         mlflow.log_params(
             {
                 "model_key": model_key,
@@ -201,13 +208,19 @@ def run_search_trial(
             }
         )
         try:
-            fit = train_booster(
-                model_key,
-                resolved_params,
-                matrices,
-                maximum_rounds=maximum_rounds,
-                patience=patience,
-            )
+            with monitor_training(
+                training_device=tags["training_device"],
+                fit_scope=(
+                    "Optuna trial booster fit with shared, preprocessed matrices already resident"
+                ),
+            ):
+                fit = train_booster(
+                    model_key,
+                    resolved_params,
+                    matrices,
+                    maximum_rounds=maximum_rounds,
+                    patience=patience,
+                )
             probabilities = predict_probabilities(
                 model_key,
                 fit.booster,
@@ -239,6 +252,9 @@ def run_search_trial(
                     "best_macro_iteration": float(fit.best_macro_iteration),
                     "best_loss_iteration": float(fit.best_loss_iteration),
                     "booster_training_time_seconds": fit.training_time_seconds,
+                    "shared_preprocessing_time_seconds": (
+                        matrices.preprocessing_time_seconds
+                    ),
                     "training_time_seconds": (
                         matrices.preprocessing_time_seconds
                         + fit.training_time_seconds

@@ -36,7 +36,7 @@ from .experiment_specs import (
     round_definition,
     specs_for_round,
 )
-from .tracking import setup_mlflow_experiment
+from .tracking import refresh_training_provenance, setup_mlflow_experiment
 
 
 def _parser(round_name: str) -> argparse.ArgumentParser:
@@ -177,7 +177,7 @@ def _round_main(round_name: str, argv: Sequence[str] | None = None) -> int:
     )
     latest_existing, _ = latest_successful_runs(existing)
     completed_keys = set(latest_existing["configuration_key"].dropna())
-    requested_by_key, pending, skipped = partition_specs_for_execution(
+    _, pending, skipped = partition_specs_for_execution(
         specs, completed_keys, args.rerun
     )
 
@@ -192,6 +192,7 @@ def _round_main(round_name: str, argv: Sequence[str] | None = None) -> int:
         _print_report(report, output_path)
         return 0
 
+    refresh_training_provenance()
     implementation = importlib.import_module(definition.implementation_module)
     build_adapter = implementation.build_adapter
     data = load_experiment_data(contract=contract)
@@ -219,6 +220,7 @@ def _round_main(round_name: str, argv: Sequence[str] | None = None) -> int:
 
     timing_inputs = make_timing_inputs(data.X_validation)
     run_group_id = uuid.uuid4().hex
+    print(f"Run group: {run_group_id}")
     failures: list[tuple[str, str]] = []
     for run_number, (key, spec) in enumerate(pending, start=1):
         print(f"\n[{run_number}/{len(pending)}] {key}")
@@ -243,17 +245,27 @@ def _round_main(round_name: str, argv: Sequence[str] | None = None) -> int:
     report = build_screening_report([round_name], contract=comparison_contract)
     output_path = save_leaderboard(report)
     _print_report(report, output_path)
-    completed_after = set(report.leaderboard["configuration_key"].dropna())
-    missing_requested = sorted(set(requested_by_key) - completed_after)
+    current_runs = report.matching_runs
+    successful_counts = current_runs.loc[
+        current_runs["run_group_id"].eq(run_group_id)
+        & current_runs["status"].eq("FINISHED")
+        & current_runs["macro_f1"].notna(),
+        "configuration_key",
+    ].value_counts()
+    incomplete = [key for key, _ in pending if successful_counts.get(key, 0) != 1]
+    print(
+        f"Run group completed: {len(pending) - len(incomplete)}/{len(pending)} "
+        "requested fits (historical results not counted)."
+    )
     if failures:
         print("\nFailures in this invocation:")
         for key, message in failures:
             print(f"  {key}: {message}")
-    if missing_requested:
-        print("\nRequested configurations still missing:")
-        for key in missing_requested:
-            print(f"  {key}")
-    return 1 if failures or missing_requested else 0
+    if incomplete:
+        print("\nExpected exactly one successful run in this group for each configuration:")
+        for key in incomplete:
+            print(f"  {key}: found {successful_counts.get(key, 0)}")
+    return 1 if failures or incomplete else 0
 
 
 def baseline_main(argv: Sequence[str] | None = None) -> int:

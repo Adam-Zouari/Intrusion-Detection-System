@@ -210,6 +210,7 @@ def _run_original_fit(
             evaluation_stage="development_split_stability",
         ),
         run_name=run_name,
+        source="ids-tune-trees compare-original-xgboost",
     )
     return {
         "configuration": ORIGINAL_CONFIGURATION,

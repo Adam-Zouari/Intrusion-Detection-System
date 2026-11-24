@@ -25,8 +25,15 @@ from ..data import (
     make_inner_split,
 )
 from ..evaluation import TimingInputs
-from ..tracking import configure_tracking
-from .training import FEATURE_SET, TARGET_TRIALS, VERIFICATION_EXPERIMENT, prepare_matrices
+from ..telemetry import RESOURCE_METRIC_NAMES
+from ..tracking import configure_tracking, refresh_training_provenance
+from .training import (
+    FEATURE_SET,
+    TARGET_TRIALS,
+    TUNING_EXPERIMENT,
+    VERIFICATION_EXPERIMENT,
+    prepare_matrices,
+)
 from .final_evaluation import evaluate_frozen_final_model, show_final_report
 from .final_selection import freeze_final_model
 from .search_space import MODEL_KEYS
@@ -118,6 +125,7 @@ def run_smoke(data: ExperimentData, model_keys: Sequence[str]) -> None:
                     y_smoke_validation,
                     RANDOM_STATE,
                     "smoke_outer_validation",
+                    source="ids-tune-trees search",
                 )
                 speed = log_speed_for_candidate(
                     candidate, _smoke_timing_inputs(X_smoke_validation)
@@ -182,22 +190,33 @@ def _study_progress(
     return pd.DataFrame(records)
 
 
-def _verification_report(
-    model_keys: Sequence[str], project_root: Path | None = None
+def _training_report(
+    model_keys: Sequence[str],
+    experiment_name: str,
+    columns: dict[str, str],
+    project_root: Path | None = None,
 ) -> pd.DataFrame:
     configure_tracking(project_root)
-    experiment = mlflow.get_experiment_by_name(VERIFICATION_EXPERIMENT)
+    experiment = mlflow.get_experiment_by_name(experiment_name)
     if experiment is None:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=list(columns.values()))
     runs = mlflow.search_runs(
         experiment_ids=[experiment.experiment_id], output_format="pandas"
     )
+    if runs.empty:
+        return pd.DataFrame(columns=list(columns.values()))
     model_column = runs.get("tags.model_key", pd.Series(index=runs.index, dtype=object))
     selected = runs.loc[
         runs["status"].eq("FINISHED") & model_column.isin(model_keys)
-    ].copy()
-    if selected.empty:
-        return selected
+    ]
+    return selected.reindex(columns=list(columns)).rename(columns=columns).sort_values(
+        ["model_key", "macro_f1"], ascending=[True, False]
+    )
+
+
+def _verification_report(
+    model_keys: Sequence[str], project_root: Path | None = None
+) -> pd.DataFrame:
     columns = {
         "run_id": "run_id",
         "tags.model_key": "model_key",
@@ -207,30 +226,49 @@ def _verification_report(
         "metrics.macro_f1": "macro_f1",
         "metrics.accuracy_reference": "accuracy_reference",
         "metrics.binary_attack_recall": "binary_attack_recall",
+        "metrics.training_time_seconds": "training_time_seconds",
         "metrics.latency_p99_ms": "latency_p99_ms",
         "metrics.throughput_flows_per_second": "throughput_flows_per_second",
+        **{f"metrics.{name}": name for name in RESOURCE_METRIC_NAMES},
     }
-    available = [column for column in columns if column in selected]
-    return selected[available].rename(columns=columns).sort_values(
-        ["model_key", "macro_f1"], ascending=[True, False]
-    )
+    return _training_report(model_keys, VERIFICATION_EXPERIMENT, columns, project_root)
+
+
+def _trial_report(
+    model_keys: Sequence[str], project_root: Path | None = None
+) -> pd.DataFrame:
+    columns = {
+        "run_id": "run_id",
+        "tags.model_key": "model_key",
+        "tags.study_name": "study_name",
+        "tags.trial_number": "trial_number",
+        "metrics.macro_f1": "macro_f1",
+        "metrics.training_time_seconds": "training_time_seconds",
+        "metrics.booster_training_time_seconds": "booster_training_time_seconds",
+        "metrics.shared_preprocessing_time_seconds": "shared_preprocessing_time_seconds",
+        **{f"metrics.{name}": name for name in RESOURCE_METRIC_NAMES},
+    }
+    return _training_report(model_keys, TUNING_EXPERIMENT, columns, project_root)
 
 
 def show_tuning_report(model_keys: Sequence[str]) -> None:
     progress = _study_progress(model_keys)
     verification = _verification_report(model_keys)
+    trials = _trial_report(model_keys)
     output = find_project_root() / "ml" / "reports" / "generated"
     output.mkdir(parents=True, exist_ok=True)
     print("\nOptuna study progress:")
     print("No matching studies." if progress.empty else progress.to_string(index=False))
     print("\nVerification runs:")
+    terminal_verification = verification.drop(columns=list(RESOURCE_METRIC_NAMES))
     print(
         "No matching verification runs."
-        if verification.empty
-        else verification.to_string(index=False)
+        if terminal_verification.empty
+        else terminal_verification.to_string(index=False)
     )
     progress.to_csv(output / "tree_tuning_study_progress.csv", index=False)
     verification.to_csv(output / "tree_tuning_verification_runs.csv", index=False)
+    trials.to_csv(output / "tree_tuning_trial_runs.csv", index=False)
     print(f"\nSaved generated reports under {output}")
 
 
@@ -322,6 +360,7 @@ def tuning_main(argv: Sequence[str] | None = None) -> int:
             print(error)
             return 1
     if args.command == "evaluate-final":
+        refresh_training_provenance()
         try:
             evaluate_frozen_final_model()
             return 0
@@ -331,6 +370,7 @@ def tuning_main(argv: Sequence[str] | None = None) -> int:
 
     contract = load_dataset_contract()
     data = load_experiment_data(contract=contract)
+    refresh_training_provenance()
     if args.command == "search" and args.smoke_only:
         run_smoke(data, model_keys)
         return 0

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gc
-import platform
 from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Callable, Protocol
@@ -20,6 +19,15 @@ from .evaluation import (
     measure_predictor_speed,
 )
 from .experiment_specs import ExperimentSpec
+from .telemetry import monitor_training
+from .tracking import log_training_environment, start_training_run
+
+
+SCREENING_COMMANDS = {
+    "baseline": "ids-run-baselines",
+    "tree": "ids-run-trees",
+    "neural": "ids-run-neural",
+}
 
 
 @dataclass(frozen=True)
@@ -99,6 +107,7 @@ def run_validation_experiment(
     *,
     partition: ValidationPartition | None = None,
     run_name: str | None = None,
+    source: str | None = None,
 ) -> dict[str, object]:
     selected_features = data.feature_sets[spec.feature_set]
     default_partition = partition is None
@@ -142,16 +151,17 @@ def run_validation_experiment(
         "source_feature_count": str(len(selected_features)),
         "evaluation_stage": partition.evaluation_stage,
         "test_split_fingerprint": data.contract.test_fingerprint,
-        "python_version": platform.python_version(),
-        "operating_system": platform.platform(),
-        "machine": platform.machine(),
         **comparison_contract,
     }
     base_tags.update(extra_tags or {})
 
     adapter: ScreeningAdapter | None = None
     try:
-        with mlflow.start_run(run_name=selected_run_name, tags=base_tags) as active_run:
+        with start_training_run(
+            run_name=selected_run_name,
+            source=source or SCREENING_COMMANDS[spec.screening_round],
+            tags=base_tags,
+        ) as active_run:
             adapter = adapter_factory()
             metadata = adapter.metadata
             mlflow.set_tags(
@@ -180,10 +190,25 @@ def run_validation_experiment(
                 **adapter.parameters(),
             }
             mlflow.log_params(parameters)
+            log_training_environment(
+                training_device=metadata.training_device,
+                inference_device=metadata.inference_device,
+                model_library=metadata.model_library,
+                model_library_version=metadata.model_library_version,
+                configured_threads={
+                    key: value
+                    for key, value in parameters.items()
+                    if key.endswith("__n_jobs") and isinstance(value, int)
+                },
+            )
 
-            training_start = perf_counter()
-            fit_details = adapter.fit(partition.X_training, partition.y_training)
-            training_time_seconds = perf_counter() - training_start
+            with monitor_training(
+                training_device=metadata.training_device,
+                gpu_context="torch" if spec.screening_round == "neural" else "native",
+            ):
+                training_start = perf_counter()
+                fit_details = adapter.fit(partition.X_training, partition.y_training)
+                training_time_seconds = perf_counter() - training_start
 
             predictions = adapter.predict(partition.X_evaluation)
             metrics, report, raw_matrix, normalized_matrix = (

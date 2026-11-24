@@ -20,6 +20,7 @@ from .experiment_specs import (
     models_for_candidate_role,
     validate_round_filter,
 )
+from .telemetry import RESOURCE_METRIC_NAMES
 from .tracking import configure_tracking
 CONTRACT_COLUMNS = list(COMPARISON_CONTRACT_FIELDS)
 LEADERBOARD_COLUMNS = [
@@ -41,6 +42,7 @@ LEADERBOARD_COLUMNS = [
     "latency_p95_ms",
     "latency_p99_ms",
     "throughput_flows_per_second",
+    *RESOURCE_METRIC_NAMES,
     "selected_epochs",
     "training_device",
     "start_time",
@@ -77,7 +79,15 @@ def _coalesce(frame: pd.DataFrame, *names: str) -> pd.Series:
 
 def normalize_runs(raw_runs: pd.DataFrame) -> pd.DataFrame:
     if raw_runs.empty:
-        return pd.DataFrame(columns=LEADERBOARD_COLUMNS + CONTRACT_COLUMNS + ["status"])
+        return pd.DataFrame(
+            columns=[
+                *LEADERBOARD_COLUMNS,
+                *CONTRACT_COLUMNS,
+                "status",
+                "evaluation_stage",
+                "run_group_id",
+            ]
+        )
 
     normalized = pd.DataFrame(index=raw_runs.index)
     passthrough = [
@@ -138,6 +148,7 @@ def normalize_runs(raw_runs: pd.DataFrame) -> pd.DataFrame:
         "latency_p95_ms",
         "latency_p99_ms",
         "throughput_flows_per_second",
+        *RESOURCE_METRIC_NAMES,
         "selected_epochs",
     ]:
         normalized[name] = pd.to_numeric(_column(raw_runs, f"metrics.{name}"), errors="coerce")

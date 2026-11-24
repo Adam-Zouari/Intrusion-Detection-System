@@ -27,6 +27,7 @@ from ..data import (
     transformed_feature_count,
 )
 from ..preprocessing import make_one_hot_protocol_preprocessor
+from ..tracking import log_training_environment
 from .search_space import validate_resolved_parameters
 
 FEATURE_SET = "all_71"
@@ -308,6 +309,20 @@ def base_parameters(model_key: str) -> dict[str, object]:
             "num_threads": -1,
         }
     raise ValueError(f"Unknown tuning model: {model_key}")
+
+
+def log_boosting_environment(
+    model_key: str, *, training_device: str, inference_device: str
+) -> None:
+    """Record the same resolved environment for each boosting workflow."""
+    threads_key = "nthread" if model_key == "xgboost" else "num_threads"
+    log_training_environment(
+        training_device=training_device,
+        inference_device=inference_device,
+        model_library=model_key,
+        model_library_version=xgb.__version__ if model_key == "xgboost" else lgb.__version__,
+        configured_threads={threads_key: int(base_parameters(model_key)[threads_key])},
+    )
 
 
 def train_booster(

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import gc
 import json
-import platform
 from collections.abc import Sequence
 from dataclasses import dataclass
 from time import perf_counter
@@ -32,7 +31,8 @@ from ..evaluation import (
     make_timing_inputs,
     measure_predictor_speed,
 )
-from ..tracking import setup_mlflow_experiment
+from ..telemetry import monitor_training
+from ..tracking import setup_mlflow_experiment, start_training_run
 from ..tree_models import log_tree_importance
 from .training import (
     FEATURE_SET,
@@ -42,6 +42,7 @@ from .training import (
     WEIGHTING_MODE,
     TunedTreePredictor,
     base_parameters,
+    log_boosting_environment,
     make_tuning_preprocessor,
 )
 from .search_space import validate_resolved_parameters
@@ -160,7 +161,6 @@ def _verification_tags(
         "evaluation_split_fingerprint": validation_fingerprint,
         "test_split_fingerprint": data.contract.test_fingerprint,
         "split_seed": str(split_seed),
-        "python_version": platform.python_version(),
     }
 
 
@@ -174,6 +174,8 @@ def run_verification_fit(
     y_validation: pd.Series,
     split_seed: int,
     evaluation_stage: str,
+    *,
+    source: str = "ids-tune-trees verify",
 ) -> VerificationCandidate:
     params = resolved_trial_parameters(trial)
     iteration_count = int(trial.user_attrs["best_macro_iteration"])
@@ -187,15 +189,21 @@ def run_verification_fit(
         evaluation_stage,
     )
     run_name = f"verify__{model_key}__trial_{trial.number:04d}__seed_{split_seed}"
-    with mlflow.start_run(run_name=run_name, tags=tags) as active_run:
-        predictor, training_seconds, transformed_names = fit_fixed_predictor(
+    with start_training_run(run_name=run_name, source=source, tags=tags) as active_run:
+        log_boosting_environment(
             model_key,
-            params,
-            iteration_count,
-            X_training,
-            y_training,
-            data.feature_sets[FEATURE_SET],
+            training_device=tags["training_device"],
+            inference_device=tags["inference_device"],
         )
+        with monitor_training(training_device=tags["training_device"]):
+            predictor, training_seconds, transformed_names = fit_fixed_predictor(
+                model_key,
+                params,
+                iteration_count,
+                X_training,
+                y_training,
+                data.feature_sets[FEATURE_SET],
+            )
         predictions = predictor.predict(X_validation)
         metrics, report, raw_matrix, normalized_matrix = (
             calculate_metrics_and_diagnostics(y_validation, predictions)
@@ -208,7 +216,8 @@ def run_verification_fit(
                 "source_trial_number": trial.number,
                 "feature_set": FEATURE_SET,
                 "weighting_mode": WEIGHTING_MODE,
-                "random_state": split_seed,
+                "random_state": RANDOM_STATE,
+                "data_split_seed": split_seed,
                 "selected_boosting_iterations": iteration_count,
                 **params,
             }

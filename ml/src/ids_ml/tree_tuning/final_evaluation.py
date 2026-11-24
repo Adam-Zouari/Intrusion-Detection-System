@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import platform
 import tempfile
 from pathlib import Path
 
@@ -28,7 +27,8 @@ from ..evaluation import (
     make_timing_inputs,
     measure_predictor_speed,
 )
-from ..tracking import configure_tracking, setup_mlflow_experiment
+from ..telemetry import RESOURCE_METRIC_NAMES, monitor_training
+from ..tracking import configure_tracking, setup_mlflow_experiment, start_training_run
 from ..tree_models import log_tree_importance
 from .final_selection import (
     final_spec_path,
@@ -37,6 +37,7 @@ from .final_selection import (
     validate_frozen_recipe_structure,
 )
 from .verification import fit_fixed_predictor, importance_values
+from .training import log_boosting_environment
 
 FINAL_EXPERIMENT = "cicids2017-final-test"
 
@@ -153,7 +154,6 @@ def _final_tags(
         "timing_input_fingerprint": str(contract["timing_input_fingerprint"]),
         "training_device": "cuda",
         "inference_device": "cpu",
-        "python_version": platform.python_version(),
         "xgboost_version": xgboost.__version__,
     }
 
@@ -197,16 +197,27 @@ def evaluate_frozen_final_model(
     tags = _final_tags(recipe, development_fingerprint)
     predictor = None
     reloaded = None
-    with mlflow.start_run(run_name=artifact_stem, tags=tags) as active_run:
+    with start_training_run(
+        run_name=artifact_stem,
+        source="ids-tune-trees evaluate-final",
+        tags=tags,
+        project_root=root,
+    ) as active_run:
         try:
-            predictor, training_seconds, transformed_names = fit_fixed_predictor(
+            log_boosting_environment(
                 "xgboost",
-                parameters,
-                iteration_count,
-                X_development,
-                y_development,
-                selected_features,
+                training_device=tags["training_device"],
+                inference_device=tags["inference_device"],
             )
+            with monitor_training(training_device=tags["training_device"]):
+                predictor, training_seconds, transformed_names = fit_fixed_predictor(
+                    "xgboost",
+                    parameters,
+                    iteration_count,
+                    X_development,
+                    y_development,
+                    selected_features,
+                )
             if len(transformed_names) != int(model["transformed_feature_count"]):
                 raise AssertionError(
                     "The fitted transformed schema differs from the frozen recipe."
@@ -365,6 +376,7 @@ def show_final_report(project_root: Path | None = None) -> pd.DataFrame:
         "metrics.latency_p99_ms",
         "metrics.throughput_flows_per_second",
         "metrics.model_size_mib",
+        *(f"metrics.{name}" for name in RESOURCE_METRIC_NAMES),
     ]
     summary = pd.DataFrame(
         [

@@ -16,18 +16,26 @@ from ids_ml.data import (
     make_inner_split,
 )
 from ids_ml.tree_models import build_tree_pipeline
-from ids_ml.tree_tuning.cli import tuning_main
+from ids_ml.tracking import setup_mlflow_experiment
+from ids_ml.tree_tuning.cli import _trial_report, _verification_report, tuning_main
 from ids_ml.tree_tuning.original_xgboost_comparison import (
     _paired_comparison,
     _run_original_fit,
     original_xgboost_spec,
 )
-from ids_ml.tree_tuning.search import optimize_to_target, top_complete_trials
+from ids_ml.tree_tuning.search import optimize_to_target, run_search_trial, top_complete_trials
 from ids_ml.tree_tuning.search_space import (
     suggest_parameters,
     validate_resolved_parameters,
 )
-from ids_ml.tree_tuning.training import IterationMonitor, base_parameters
+from ids_ml.tree_tuning.training import (
+    TUNING_EXPERIMENT,
+    VERIFICATION_EXPERIMENT,
+    IterationMonitor,
+    base_parameters,
+    prepare_matrices,
+)
+from ids_ml.tree_tuning.verification import run_verification_fit
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -133,7 +141,10 @@ def test_original_xgboost_comparison_smoke_fit_logs_shared_artifacts(
             artifact.path
             for artifact in mlflow.MlflowClient().list_artifacts(str(result["run_id"]))
         }
-        assert {"diagnostics", "evaluation"}.issubset(artifacts)
+        assert {"diagnostics", "evaluation", "environment.json"}.issubset(artifacts)
+        run = mlflow.MlflowClient().get_run(str(result["run_id"]))
+        assert run.data.tags["mlflow.source.name"] == "ids-tune-trees compare-original-xgboost"
+        assert run.data.metrics["peak_training_ram_mib"] > 0
         assert np.isfinite(float(result["macro_f1"]))
     finally:
         mlflow.end_run()
@@ -144,6 +155,95 @@ def test_original_xgboost_comparison_smoke_fit_logs_shared_artifacts(
             monkeypatch.setenv(
                 "MLFLOW_ALLOW_FILE_STORE", previous_file_store_setting
             )
+
+
+def test_optuna_trial_memory_and_report_use_temporary_stores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    features = ["Protocol", *[f"feature_{index}" for index in range(70)]]
+    labels = pd.Series(np.repeat(LABEL_ORDER, 20))
+    rng = np.random.default_rng(42)
+    X = pd.DataFrame(rng.normal(size=(len(labels), len(features))), columns=features)
+    X["Protocol"] = np.resize([0, 6, 17], len(X))
+    validation = pd.DataFrame(
+        rng.normal(size=(len(LABEL_ORDER), len(features))),
+        columns=features,
+        index=pd.RangeIndex(1_000, 1_000 + len(LABEL_ORDER)),
+    )
+    validation["Protocol"] = np.resize([0, 6, 17], len(validation))
+    validation_labels = pd.Series(LABEL_ORDER, index=validation.index)
+    data = ExperimentData(
+        X_fit=X,
+        X_validation=validation,
+        X_test=X.iloc[:0],
+        y_fit=labels,
+        y_validation=validation_labels,
+        y_test=labels.iloc[:0],
+        model_input_features=features,
+        feature_sets={"all_71": features},
+        contract=DatasetContract(dataset_sha256="synthetic"),
+    )
+    matrices = prepare_matrices(X, labels, features)
+    (tmp_path / "ml").mkdir()
+    (tmp_path / "pyproject.toml").touch()
+    monkeypatch.chdir(tmp_path)
+    previous_uri = mlflow.get_tracking_uri()
+    try:
+        setup_mlflow_experiment(VERIFICATION_EXPERIMENT, tmp_path)
+        empty_verification = _verification_report(["lightgbm"], tmp_path)
+        assert empty_verification.empty
+        assert "peak_training_ram_mib" in empty_verification
+
+        setup_mlflow_experiment(TUNING_EXPERIMENT, tmp_path)
+        study = optuna.create_study(
+            direction="maximize", sampler=optuna.samplers.RandomSampler(seed=42)
+        )
+        trial = study.ask()
+        score = run_search_trial(
+            trial, "lightgbm", matrices, data, study.study_name, maximum_rounds=1
+        )
+        # A finite training output and metadata suffice; no protected data exists.
+        assert np.isfinite(score)
+        study.tell(trial, score)
+        run = mlflow.MlflowClient().get_run(study.trials[0].user_attrs["mlflow_run_id"])
+        assert run.data.tags["mlflow.source.name"] == "ids-tune-trees search"
+        assert run.data.tags["training_device"] == "cpu"
+        assert run.data.metrics["peak_training_ram_mib"] > 0
+        assert "peak_training_vram_mib" not in run.data.metrics
+        assert np.isclose(
+            run.data.metrics["training_time_seconds"],
+            run.data.metrics["shared_preprocessing_time_seconds"]
+            + run.data.metrics["booster_training_time_seconds"],
+        )
+        report = _trial_report(["lightgbm"], tmp_path)
+        assert len(report) == 1
+        assert report["peak_training_ram_mib"].iloc[0] > 0
+        assert report["peak_training_vram_mib"].isna().all()
+
+        setup_mlflow_experiment(VERIFICATION_EXPERIMENT, tmp_path)
+        verified = run_verification_fit(
+            "lightgbm",
+            study.trials[0],
+            data,
+            X,
+            labels,
+            validation,
+            validation_labels,
+            123,
+            "development_split_stability",
+        )
+        try:
+            check = mlflow.MlflowClient().get_run(verified.run_id)
+            assert check.data.tags["mlflow.source.name"] == "ids-tune-trees verify"
+            assert check.data.params["random_state"] == "42"
+            assert check.data.params["data_split_seed"] == "123"
+            assert check.data.metrics["peak_training_ram_mib"] > 0
+            assert _verification_report(["lightgbm"], tmp_path).shape[0] == 1
+        finally:
+            verified.predictor.cleanup()
+    finally:
+        mlflow.end_run()
+        mlflow.set_tracking_uri(previous_uri)
 
 
 def test_tuning_inner_split_is_deterministic_and_class_preserving() -> None:
