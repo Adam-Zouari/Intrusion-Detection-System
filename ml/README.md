@@ -45,11 +45,13 @@ Notebook 1 is executed with:
 jupyter lab ml/notebooks/01_data_exploration.ipynb
 ```
 
-Notebook 1 investigates the raw shape, target, class imbalance, missing and infinite values, invalid measurements, constants, zero-duration flows, duplicate records, and protocol values. It writes the validated dataset to:
+Notebook 1 investigates the target, class imbalance, missing and infinite values, constant features, invalid measurements, and duplicate records. It excludes seven records with invalid TCP-header measurements and writes the 2,824,745-row dataset to:
 
 ```text
 ml/data/processed/cicids2017_cleaned.parquet
 ```
+
+**Published benchmark:** Notebook 2 and the training commands below still expect the earlier 2,824,752-row export. Running the current Notebook 1 replaces that file; the old shape check will reject the revised data. To reproduce the published input, run Notebook 1 from revision `5425709` with the same merged CSV.
 
 ## 4. Feature preparation and protected split
 

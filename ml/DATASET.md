@@ -10,19 +10,19 @@ The dataset publisher requests the following citation:
 
 > Iman Sharafaldin, Arash Habibi Lashkari, and Ali A. Ghorbani. "Toward Generating a New Intrusion Detection Dataset and Intrusion Traffic Characterization." *Proceedings of the 4th International Conference on Information Systems Security and Privacy (ICISSP)*, 2018.
 
-The original flow CSV exports were concatenated into one uncleaned local file:
+The project starts from a local merged CIC-IDS-2017 flow CSV, before the cleaning decisions in Notebook 1:
 
 ```text
 ml/data/raw/cicids2017_merged.csv
 ```
 
-Merging the exports does not alter the individual flow records and is suitable here because the model consumes flow rows rather than separate files. The raw file is immutable and ignored by Git.
+UNB distributes both labeled flow exports (`GeneratedLabelledFlows.zip`) and machine-learning tables (`MachineLearningCSV.zip`). This project requires the metadata-bearing 84-column schema documented below, including both IPs, both ports, the flow ID and timestamp. The exact upstream archive, header-renaming steps and merge script for this local copy have not been verified. Concatenation is suitable for this row-level workflow; it does not establish byte-for-byte provenance. The current input is kept unchanged and ignored by Git.
 
 The `ClassLabel` column was project-generated and was removed from the raw CSV. The official `Label` column is the only target used by the current workflow.
 
 ## CICFlowMeter flow direction
 
-CICFlowMeter creates **bidirectional flows**. The first observed packet establishes the **forward** direction (`Src IP` -> `Dst IP`); packets travelling in the reverse direction are **backward**.
+CICFlowMeter creates **bidirectional flows**. Forward is the exported `Src IP` -> `Dst IP` orientation, normally established by the first observed packet; reverse traffic is backward. A historical timeout exception is described below.
 
 Forward does not mean attacker -> victim, and backward does not mean victim -> attacker. Those security roles must be inferred separately from the scenario, timestamp, addresses, and label.
 
@@ -40,9 +40,9 @@ Packets are grouped primarily by the network **5-tuple**:
 4. Destination port
 5. IP protocol, such as TCP or UDP
 
-CICFlowMeter treats the reverse 5-tuple as the backward direction of the same bidirectional flow. For example, `192.168.10.5:51000 -> 104.16.10.20:443 (TCP)` and its reply belong to the same flow. The first observed packet decides which direction is called forward.
+CICFlowMeter treats the reverse 5-tuple as the backward direction of the same bidirectional flow. For example, `192.168.10.5:51000 -> 104.16.10.20:443 (TCP)` and its reply can belong to the same flow.
 
-Time also separates flows. TCP flows normally end on connection termination, such as FIN or RST, while UDP and inactive or long-running traffic are separated using configured timeouts. Reuse of the same 5-tuple after a flow ends can therefore produce a new flow.
+Time also separates flows. For the **2017 release**, the documented TCP termination conditions were an observed FIN (except on the first packet) or a 120-second flow timeout. After a timeout, a subsequent flow could inherit its predecessor's direction rather than that of its own first packet. A flow is therefore not necessarily an entire TCP connection. See the [historical extractor analysis](https://intrusion-detection.distrinet-research.be/WTMC2021/extended_doc.html).
 
 > **Flow = bidirectional 5-tuple + its time/session boundary**
 
@@ -55,11 +55,11 @@ Attacker and victim roles and the benign or attack label do not determine flow m
 | Column | Meaning |
 |---|---|
 | `Flow ID` | Identifier constructed from the flow endpoints, ports, and protocol. It identifies a flow inside the generated data but should not be assumed globally unique across captures. |
-| `Src IP` | Source IP address of the first observed packet; establishes the forward-flow origin but is not necessarily the attacker. |
+| `Src IP` | Source IP in the recorded forward direction; not necessarily the attacker. |
 | `Src Port` | Transport-layer source port of the forward origin. A value of zero can occur when a port is not applicable. |
-| `Dst IP` | Destination IP address of the first observed packet; establishes the forward-flow destination but is not necessarily the victim. |
+| `Dst IP` | Destination IP in the recorded forward direction; not necessarily the victim. |
 | `Dst Port` | Transport-layer destination port. A value of zero can occur when a port is not applicable. |
-| `Protocol` | Numeric IP protocol identifier. The observed cleaned values are `0` (HOPOPT), `6` (TCP), and `17` (UDP). The stored numeric values remain unchanged; model pipelines handle their encoding. |
+| `Protocol` | Recorded protocol code: `6` is TCP, `17` is UDP, and `0` is an unconfirmed underlying protocol. The [extractor](https://github.com/ahlashkari/CICFlowMeter/blob/master/src/main/java/cic/cs/unb/ca/jnetpcap/PacketReader.java) explicitly identifies TCP and UDP; the registry name for zero does not identify these records as IPv6 hop-by-hop traffic. Stored codes are unchanged. |
 | `Timestamp` | Recorded start date and time of the flow. |
 | `Label` | Ground-truth benign or attack class. This is the supervised target and must never be included in model features. |
 
@@ -108,9 +108,9 @@ In ordinary language, **length** and **size** both mean a number of bytes. CICFl
 
 ### Directional flags, headers, payload statistics, and TCP flags
 
-`Fwd/Bwd PSH Flags` and `Fwd/Bwd URG Flags` are directional counters included by CICFlowMeter's legacy feature schema. There is no TCP rule requiring only PSH and URG to be directional; the tool simply does not export equivalent directional counters for every flag. The later `... Flag Count` columns count flags across the complete bidirectional flow.
+`Fwd/Bwd PSH Flags` and `Fwd/Bwd URG Flags` are directional counters in the intended schema; there is no TCP rule requiring only these flags to be directional. **The table gives intended flag meanings, not a guarantee about the 2017 measurements.** The original extractor counted whole-flow TCP flags only on the first packet and did not correctly increment the directional PSH/URG counters. Later implementations can produce different values under the same names ([historical flag-count findings](https://intrusion-detection.distrinet-research.be/WTMC2021/extended_doc.html)).
 
-A directional PSH or URG value of zero does not mean the flow is UDP. It means CICFlowMeter counted no such flag in that direction. UDP flows also receive zero because TCP flags do not apply, but many TCP flows legitimately contain no PSH or URG flags.
+A zero flag value does not identify UDP or prove the flag was absent throughout a TCP flow. Use the protocol field to distinguish recorded TCP from UDP.
 
 | Column | Meaning |
 |---|---|
@@ -118,8 +118,8 @@ A directional PSH or URG value of zero does not mean the flow is UDP. It means C
 | `Bwd PSH Flags` | Number of backward packets with the TCP PSH flag set. |
 | `Fwd URG Flags` | Number of forward packets with the TCP URG flag set. |
 | `Bwd URG Flags` | Number of backward packets with the TCP URG flag set. |
-| `Fwd Header Length` | Total bytes used by packet headers in the forward direction. |
-| `Bwd Header Length` | Total bytes used by packet headers in the backward direction. |
+| `Fwd Header Length` | Exported sum of forward header bytes. For TCP the per-packet header size is not a cap on the directional total; historical UDP values do not reliably equal eight bytes per packet. |
+| `Bwd Header Length` | Corresponding exported backward header-byte total, with the same interpretation limits. |
 | `Fwd Packets/s` | Forward packets per second. |
 | `Bwd Packets/s` | Backward packets per second. |
 | `Packet Length Min` | Minimum packet payload length across both directions, in bytes. |
@@ -190,7 +190,7 @@ Each endpoint advertises its own receive window. When the first forward packet i
 | `Subflow Bwd Bytes` | Average number of backward bytes per detected subflow. |
 | `FWD Init Win Bytes` | TCP window value reported for the initial forward packet. It is an advertised receive-window field, not transferred bytes. In this dataset, `-1` is an unavailable or not-applicable sentinel. |
 | `Bwd Init Win Bytes` | TCP window value reported for the backward direction. It is an advertised receive-window field, not transferred bytes. In this dataset, `-1` is an unavailable or not-applicable sentinel. |
-| `Fwd Act Data Pkts` | Number of forward packets carrying at least one byte of TCP payload. |
+| `Fwd Act Data Pkts` | Extractor counter for forward packets carrying payload; not restricted to TCP. |
 | `Fwd Seg Size Min` | Minimum forward packet header-byte count in the published implementation. Despite the name, it is not the minimum forward payload size. |
 
 ### Active and idle periods
