@@ -17,7 +17,7 @@ The project is intended to be read in this order:
 
 1. [Dataset and feature reference](ml/DATASET.md) explains CIC-IDS-2017, CICFlowMeter flows, and every source column.
 2. [Data exploration](ml/notebooks/01_data_exploration.ipynb) investigates and cleans the merged raw dataset.
-3. [Feature engineering](ml/notebooks/02_feature_engineering.ipynb) defines eligible features, creates the protected split, and records feature-selection diagnostics.
+3. [Model data preparation](ml/notebooks/02_model_data_preparation.ipynb) defines 71 inputs, keeps one example per distinct pattern, and verifies the training, validation, and test partitions on the revised data. The screening and final results below refer to the original benchmark export and split.
 4. [Model screening analysis](ml/notebooks/03_model_screening_analysis.ipynb) compares the completed baseline and tree rounds and the eight completed neural configurations.
 5. [Results](ml/RESULTS.md) follows the evidence from screening through tuning, stability checks, model selection, and final testing.
 6. [Frozen model specification](ml/final_model_spec.json) records the selected preprocessing and XGBoost recipe.
@@ -25,6 +25,8 @@ The project is intended to be read in this order:
 8. [Application guide](docs/APPLICATION.md) explains the inference API, replay generator, persistence, and dashboard.
 9. [Live CICFlowMeter integration](integrations/cicflowmeter/README.md) explains the tested Windows capture distribution.
 10. [Test guide](tests/README.md) explains the data-free validation suite.
+
+The published benchmark followed this workflow:
 
 ```text
 Merged CIC-IDS-2017 CSV
@@ -59,7 +61,7 @@ The [application guide](docs/APPLICATION.md) is the entry point for running the 
 |   |-- data/                      # Ignored raw and processed datasets
 |   |-- notebooks/
 |   |   |-- 01_data_exploration.ipynb
-|   |   |-- 02_feature_engineering.ipynb
+|   |   |-- 02_model_data_preparation.ipynb
 |   |   `-- 03_model_screening_analysis.ipynb
 |   |-- src/ids_ml/                # Model-development package
 |   |-- reports/published/         # Versioned final diagnostic evidence

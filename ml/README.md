@@ -51,17 +51,19 @@ Notebook 1 investigates the target, class imbalance, missing and infinite values
 ml/data/processed/cicids2017_cleaned.parquet
 ```
 
-**Published benchmark:** Notebook 2 and the training commands below still expect the earlier 2,824,752-row export. Running the current Notebook 1 replaces that file; the old shape check will reject the revised data. To reproduce the published input, run Notebook 1 from revision `5425709` with the same merged CSV.
+Notebooks 1 and 2 use this revised export. The model-training commands reproduce the **published benchmark** and require the earlier 2,824,752-row export and its original partitions. To reproduce those runs, use Notebook 1 from revision `5425709` with the same merged CSV in a separate checkout. The two exports use the same feature names, but their rows and splits are not interchangeable.
 
-## 4. Feature preparation and protected split
+## 4. Preparing the model data
 
 Notebook 2 is executed with:
 
 ```powershell
-jupyter lab ml/notebooks/02_feature_engineering.ipynb
+jupyter lab ml/notebooks/02_model_data_preparation.ipynb
 ```
 
-Notebook 2 removes the four identifier or leakage-prone columns, defines the 71 eligible source features, creates the reproducible stratified partitions, calculates mutual-information and correlation diagnostics, and documents the optional seven-feature reduction. It does not fit a final model or use the protected test set for model selection.
+Notebook 2 keeps one row per distinct combination of the 71 features after checking label agreement. It saves the revised partitions under `ml/data/processed/` as `cicids2017_train.parquet`, `cicids2017_validation.parquet`, and `cicids2017_test.parquet`. Each file contains the 71 features and `Label`, with no index or split column. Notebook 1’s cleaned Parquet remains unchanged.
+
+The three files are for the revised benchmark. The published screening commands below still load the earlier cleaned export and recreate its original partitions; they do not yet consume these files.
 
 ## 5. Model-screening rounds
 
